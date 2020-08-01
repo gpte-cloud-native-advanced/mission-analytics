@@ -3,25 +3,30 @@ package com.redhat.erdemo.analytics.consumer;
 import java.math.BigDecimal;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.HttpHeaders;
+import javax.ws.rs.core.Response;
 
 import com.redhat.erdemo.analytics.model.Incident;
 import com.redhat.erdemo.analytics.model.Mission;
 import com.redhat.erdemo.analytics.model.Responder;
 import com.redhat.erdemo.analytics.rest.client.IncidentService;
 import com.redhat.erdemo.analytics.rest.client.ResponderService;
-import io.smallrye.reactive.messaging.annotations.Blocking;
+import io.smallrye.mutiny.Multi;
+import io.smallrye.mutiny.operators.multi.processors.UnicastProcessor;
 import io.smallrye.reactive.messaging.kafka.KafkaRecord;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import org.eclipse.microprofile.reactive.messaging.Acknowledgment;
-import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Outgoing;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@Path("/")
 @ApplicationScoped
 public class MissionSource {
 
@@ -35,19 +40,26 @@ public class MissionSource {
     @RestClient
     ResponderService responderService;
 
-    @Incoming("mission-event")
-    @Outgoing("mission-data")
-    @Blocking
-    @Acknowledgment(Acknowledgment.Strategy.PRE_PROCESSING)
-    public Message<String> process(Message<String> payload) {
+    private final UnicastProcessor<Mission> missionProcessor = UnicastProcessor.create();
 
-        log.debug("Processing payload " + payload.getPayload());
+    @POST
+    @Path("/")
+    public Response process(String payload, @Context HttpHeaders httpHeaders) {
 
-        JsonObject json = new JsonObject(payload.getPayload());
+        log.debug("ce-id: " + httpHeaders.getHeaderString("ce-id"));
+        log.debug("ce-source: " + httpHeaders.getHeaderString("ce-source"));
+        log.debug("ce-specversion: " + httpHeaders.getHeaderString("ce-specversion"));
+        log.debug("ce-time: " + httpHeaders.getHeaderString("ce-time"));
+        log.debug("ce-type: " + httpHeaders.getHeaderString("ce-type"));
+        log.debug("ce-key: " + httpHeaders.getHeaderString("ce-key"));
+
+        log.debug("Processing payload " + payload);
+
+        JsonObject json = new JsonObject(payload);
 
         if (!"MissionCompletedEvent".equals(json.getString("messageType"))) {
             log.debug("Ignoring message with MessageType " + json.getString("messageType"));
-            return null;
+            return Response.ok().build();
         }
 
         JsonObject body = json.getJsonObject("body");
@@ -72,7 +84,13 @@ public class MissionSource {
                 .destinationLongitude(BigDecimal.valueOf(body.getDouble("destinationLong")))
                 .missionCompletedTimeStamp(dropoff.getLong("timestamp")).build();
 
-        return KafkaRecord.of(missionId, Json.encode(mission));
+        missionProcessor.onNext(mission);
+
+        return Response.ok().build();
     }
 
+    @Outgoing("mission-data")
+    Multi<Message<String>> produceMission() {
+        return missionProcessor.onItem().apply(mission -> KafkaRecord.of(mission.getMissionId(), Json.encode(mission)));
+    }
 }
