@@ -6,9 +6,9 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 
-import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
-
 import com.redhat.erdemo.analytics.model.Responder;
+import io.smallrye.mutiny.Uni;
+import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
 @RegisterRestClient(configKey="responder-service")
 public interface ResponderService {
@@ -16,7 +16,7 @@ public interface ResponderService {
     @GET
     @Path("/responder/{id}")
     @Produces(MediaType.APPLICATION_JSON)
-    Responder responder(@PathParam("id") String id);
+    Uni<Responder> responder(@PathParam("id") String id);
 
 }
 
