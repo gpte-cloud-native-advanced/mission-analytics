@@ -1,6 +1,7 @@
 package com.redhat.erdemo.analytics.consumer;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import javax.ws.rs.POST;
@@ -14,14 +15,9 @@ import com.redhat.erdemo.analytics.model.Mission;
 import com.redhat.erdemo.analytics.model.Responder;
 import com.redhat.erdemo.analytics.rest.client.IncidentService;
 import com.redhat.erdemo.analytics.rest.client.ResponderService;
-import io.smallrye.mutiny.Multi;
-import io.smallrye.mutiny.operators.multi.processors.UnicastProcessor;
-import io.smallrye.reactive.messaging.kafka.KafkaRecord;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import org.eclipse.microprofile.reactive.messaging.Message;
-import org.eclipse.microprofile.reactive.messaging.Outgoing;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,8 +35,6 @@ public class MissionSource {
     @Inject
     @RestClient
     ResponderService responderService;
-
-    private final UnicastProcessor<Mission> missionProcessor = UnicastProcessor.create();
 
     @POST
     @Path("/")
@@ -84,13 +78,10 @@ public class MissionSource {
                 .destinationLongitude(BigDecimal.valueOf(body.getDouble("destinationLong")))
                 .missionCompletedTimeStamp(dropoff.getLong("timestamp")).build();
 
-        missionProcessor.onNext(mission);
-
-        return Response.ok().build();
-    }
-
-    @Outgoing("mission-data")
-    Multi<Message<String>> produceMission() {
-        return missionProcessor.onItem().apply(mission -> KafkaRecord.of(mission.getMissionId(), Json.encode(mission)));
+        return Response.ok().entity(Json.encode(mission)).header("Ce-Id", UUID.randomUUID().toString())
+                .header("Ce-SpecVersion", "1.0")
+                .header("Ce-Type", "dev.knative.mission.data")
+                .header("Ce-Source", "urn:knative/eventing/mission/mission-data")
+                .header("Content-Type", "application/json").build();
     }
 }
